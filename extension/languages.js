@@ -1,0 +1,1 @@
+globalThis.CAPTION_LANGUAGES = {"schemaVersion": 1, "source": ["en", "ja", "fr", "es", "ko", "ru"], "target": ["zh", "en", "ja", "fr", "es", "ko", "ru"], "names": {"en": "English", "ja": "日本語", "fr": "Français", "es": "Español", "ko": "한국어", "ru": "Русский", "zh": "中文"}};

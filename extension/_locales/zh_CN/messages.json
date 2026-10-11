@@ -1,0 +1,8 @@
+{
+  "extensionName": {
+    "message": "字幕翻译生成 · CaptionCraft"
+  },
+  "extensionDescription": {
+    "message": "为 YouTube 生成原文字幕及可选译文，在本机处理。需安装免费的本地辅助程序。"
+  }
+}

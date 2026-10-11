@@ -1,0 +1,17 @@
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const fs = require('node:fs');
+const box = {};
+vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname, '../extension/caption-state.js'), 'utf8'), box);
+const state = new box.CaptionState();
+const result = words => ({words: words.map(([text,start,end]) => ({text,start,end}))});
+assert.equal(state.update(result([['Very',0,.3],['very',.35,.6],['good.',.65,.9]]), {start:0,end:1.2}), 'Very very good.');
+assert.equal(state.update(result([['Very',0,.3],['very',.35,.6],['great.',.65,.9],['Today',1.3,1.7]]), {start:0,end:2}), 'Very very great. Today');
+assert.equal(state.update(result([['great.',.05,.3],['Today',.7,1.1],['we',1.3,1.5]]), {start:.6,end:3.6}), 'Very very great. Today we');
+assert.equal(state.update(result([]), {start:1.4,end:4.4}), null);
+assert.equal(state.update(result([['old',0,.2]]), {start:0,end:1}), null);
+assert.equal(state.update(result([['New',0,.3]]), {start:8,end:9.2}), 'New');
+state.clear(); assert.equal(state.words.length,0);
+assert.equal(state.update(result([['a',1.8,2],['local',2.12,2.32],['English',2.32,2.74]]), {start:0,end:4.4}), 'a local English');
+assert.equal(state.update(result([['Local',0,.22],['English',.22,.54],['subtitle',.54,.92]]), {start:2.2,end:5.2}), 'a Local English subtitle');
+console.log('PASS: repeated words preserved, overlapping corrections replace, timestamps merge, silence, gaps, reset');

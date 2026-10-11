@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "0.6.0",
+  "description": "__MSG_extensionDescription__",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "activeTab",
+    "scripting",
+    "storage",
+    "nativeMessaging",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src http://127.0.0.1:*"
+  },
+  "default_locale": "en",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnUmtslpOeShFtcj97CJc2IO5Ujc2L10EKc0frVi+FHV/Vm7IQSBB/mQcn5+M3kKQjWPjipgJYK9Rf6jxN+Surb/+7qE4ovhiyoedg1/KvJylKBHA7EIifYbAlULbwFNfIZqUuaOVydAUc8cVp9RToulVCB5v23U5q4zzwdcb35hROeZKB/Q7UA+zM3+q4c9mCUhwNdseLdqjf1CA1RU6HZGXy0MQKfceVpcgIRAZO6TCMe5FwzwoKBVO4g/DaAO1tubEut5o1RlslsrTRK4LjHtDrlE/GrjUBitjtnUPWtJQPkgt1jteW2/GZPZy/05lrDXla5adkRXGJQx4ibrkcwIDAQAB"
+}
