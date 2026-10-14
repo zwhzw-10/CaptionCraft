@@ -5,8 +5,8 @@ class PCMRecorder extends AudioWorkletProcessor {
     this.port.onmessage = e => { this.paused = e.data.paused; this.generation = e.data.generation; this.clear(); };
   }
   clear() {
-    this.buffer = new Float32Array(48000); this.index = 0; this.total = 0;
-    this.next = 19200; this.weight = 0; this.sum = 0;
+    this.buffer = new Float32Array(96000); this.index = 0; this.total = 0;
+    this.next = 8000; this.weight = 0; this.sum = 0;
   }
   process(inputs) {
     const channels = inputs[0];
@@ -30,7 +30,7 @@ class PCMRecorder extends AudioWorkletProcessor {
             for (let j = 0; j < length; j++) frame[j] = this.buffer[(oldest + j) % this.buffer.length];
             this.port.postMessage({buffer: frame.buffer, generation: this.generation,
               start: (this.total - length) / 16000, end: this.total / 16000}, [frame.buffer]);
-            this.next += 12800;
+            this.next += 8000;
           }
         }
       }

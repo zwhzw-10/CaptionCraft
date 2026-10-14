@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const context={};vm.createContext(context);
+for(const name of ['caption-state.js','live-state.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',name),'utf8'),context);
+const state=new context.LiveCaptionState();
+const frame={start:0,end:1};
+let a=state.update({text:'I like a pear',engine:'sherpa',utterance:1,language:'en'},frame);
+assert.equal(a.final,false);
+let b=state.update({text:'I like a pair of shoes',engine:'sherpa',utterance:1,language:'en'},frame);
+assert.equal(b.text,'I like a pair of shoes');assert(b.stablePrefix>0);assert(b.revision>a.revision);
+const c=state.update({text:b.text,engine:'sherpa',utterance:1,language:'en',final:true},frame);
+assert.equal(c.revision,b.revision);assert.equal(c.final,true);
+const d=state.update({text:'very very good',engine:'sherpa',utterance:2,language:'en'},frame);
+assert.equal(d.text,'very very good');assert.equal(d.stablePrefix,0);
+state.reset();assert.equal(state.latest,null);
+console.log('PASS partial corrections, stable prefix, endpoint revision, repeated words and reset.');

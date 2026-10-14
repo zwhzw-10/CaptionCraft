@@ -2,12 +2,21 @@ const label=document.querySelector('#status');
 const buttons=[...document.querySelectorAll('button')];
 const languageNames=CAPTION_LANGUAGES.names;
 const videoLanguages=CAPTION_LANGUAGES.source;
-let preferences={source:'auto',target:'zh',display:'original',preferExisting:true};
+let preferences={source:'auto',target:'zh',display:'original',preferExisting:true,mode:'sync',liveEngine:'auto'};
 let lastState={};
 for(const code of videoLanguages) document.querySelector('#source').add(new Option(languageNames[code],code));
 for(const code of CAPTION_LANGUAGES.target) document.querySelector('#target').add(new Option(languageNames[code],code));
 for(const code of UI_LOCALES) document.querySelector('#uiLocale').add(new Option(UI_NAMES[code],code));
 function syncPreferences(){
+  if(!['sync','live'].includes(preferences.mode))preferences.mode='sync';
+  if(!['auto','sherpa','whisper'].includes(preferences.liveEngine))preferences.liveEngine='auto';
+  const live=preferences.mode==='live';
+  for(const [id,value] of [['sync-mode','sync'],['live-mode','live']]){document.getElementById(id).classList.toggle('selected',preferences.mode===value);document.getElementById(id).setAttribute('aria-pressed',String(preferences.mode===value));}
+  document.getElementById('existing-row').hidden=live;document.getElementById('live-options').hidden=!live;
+  document.getElementById('liveEngine').value=preferences.liveEngine;document.getElementById('mode-help').textContent=t(live?'liveIntro':'syncIntro');
+  document.getElementById('prepare').textContent=t(live?'beginLive':'prepare');
+  document.querySelector('[data-i18n="intro"]').hidden=live;
+
   for(const key of ['source','target','display']) document.getElementById(key).value=preferences[key];
   document.getElementById('preferExisting').checked=preferences.preferExisting;
   document.getElementById('target-row').hidden=preferences.display==='original';
@@ -26,6 +35,8 @@ function renderState(state){
     if(p.pivot) text+='\n'+t('pivot');
     if(p.error) text+='\n'+p.error;
   } else if(state?.error){text=t('error')+'\n'+state.error;}
+  if(state?.liveSetup){text=t('liveModelLoading');if(state.liveSetup.downloadMB!=null)text+=` · ${state.liveSetup.downloadMB} MB`;}
+  if(state?.metrics){const m=state.metrics;text+=`\n${m.engine==='sherpa'?t('engineEnglish'):t('engineWhisper')} · ${t('processingTime')} ${m.inferenceMs} ms`;if(m.skipped)text+=` · ${t('skippedUpdates')} ${m.skipped}`;if(m.translationState==='working'||m.translationState==='model-download')text+='\n'+t('translationPending');if(m.translationDownloadMB!=null)text+=` · ${m.translationDetail||''} ${m.translationDownloadMB} MB`;if(m.translationError)text+='\n'+t('liveTranslationError')+': '+m.translationError;}
   label.textContent=text;
   label.dataset.error=String(!!(state?.error||p?.state==='error'));
 }
@@ -33,7 +44,7 @@ function showError(e){label.textContent=(/assistantMissing/.test(e.message)?t('a
 async function command(type){
   buttons.forEach(b=>b.disabled=true);
   try{
-    if(type==='start'&&preferences.display!=='original')throw new Error(t('liveOriginal'));
+    if(type!=='stop')document.getElementById('stop').disabled=false;
     const result=await chrome.runtime.sendMessage({target:'background',type,settings:preferences});
     if(result?.error)throw new Error(result.error);
     const state=await chrome.runtime.sendMessage({target:'background',type:'status'});
@@ -51,10 +62,13 @@ for(const key of ['source','target','display','preferExisting'])document.getElem
   syncPreferences();await chrome.storage.local.set({captionPreferences:preferences});
 };
 document.getElementById('uiLocale').onchange=async e=>{
-  uiLocale=e.target.value;translatePage();renderState(lastState);await chrome.storage.local.set({uiLocale});
+  uiLocale=e.target.value;translatePage();syncPreferences();renderState(lastState);await chrome.storage.local.set({uiLocale});
 };
 document.querySelector('#start').onclick=()=>command('start');
-document.querySelector('#prepare').onclick=()=>command('prepare');
+document.querySelector('#prepare').onclick=()=>command(preferences.mode==='live'?'start':'prepare');
+for(const [id,value] of [['sync-mode','sync'],['live-mode','live']])document.getElementById(id).onclick=async()=>{preferences.mode=value;syncPreferences();await chrome.storage.local.set({captionPreferences:preferences});};
+document.getElementById('liveEngine').onchange=async e=>{preferences.liveEngine=e.target.value;await chrome.storage.local.set({captionPreferences:preferences});};
+document.getElementById('caption-window').onclick=()=>chrome.runtime.sendMessage({target:'background',type:'caption-window'}).catch(showError);
 document.querySelector('#stop').onclick=()=>command('stop');
 document.querySelector('#offset').onchange=e=>chrome.runtime.sendMessage({target:'background',type:'offset',seconds:Math.max(-5,Math.min(5,Number(e.target.value)||0))}).catch(showError);
 document.querySelector('#file').onchange=async e=>{

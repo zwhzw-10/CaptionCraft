@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
@@ -10,7 +11,7 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 
 class Setup:Form {
- const string Version="0.6.0";
+ const string Version="0.7.0";
  const string DefaultId="__EXTENSION_ID__";
  const string Host="com.captioncraft.assistant";
  const string RegistryHost=@"Software\Google\Chrome\NativeMessagingHosts\com.captioncraft.assistant";
@@ -20,14 +21,14 @@ class Setup:Form {
  Label notice;TextBox id;ProgressBar progress;Button install;CheckBox deleteData;bool completed=false;
  string T(string cn,string en){return zh?cn:en;}
  Setup(bool uninstall){
-  Text=T("字幕翻译生成 · 字幕助手","CaptionCraft Assistant");ClientSize=new Size(590,310);StartPosition=FormStartPosition.CenterScreen;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
+  Text=T("字幕翻译生成 · 字幕助手","CaptionCraft Assistant");ClientSize=new Size(680,440);StartPosition=FormStartPosition.CenterScreen;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
   Font=new Font("Segoe UI",10);
-  var title=new Label{Text=T("字幕助手 "+Version,"Subtitle Assistant "+Version),Location=new Point(25,22),AutoSize=true,Font=new Font("Segoe UI",17,FontStyle.Bold)};Controls.Add(title);
-  notice=new Label{Text=T("只需安装一次，无需 Python 或黑色窗口。\n首次使用会下载识别模型；翻译模型按需下载。","Install once. No separate Python installation or terminal needed.\nModels download on first use; translation models download as needed."),Location=new Point(25,70),Size=new Size(540,65)};Controls.Add(notice);
+  var title=new Label{Text=T("完整安装包 "+Version,"CaptionCraft Setup "+Version),Location=new Point(25,22),AutoSize=true,Font=new Font("Segoe UI",17,FontStyle.Bold)};Controls.Add(title);
+  notice=new Label{Text=T("点击安装，自动安装助手和插件文件，无需手动解压。\n安装后按引导在 Chrome 确认加载。首次使用下载模型。","Install once. No separate Python installation or terminal needed.\nModels download on first use; translation models download as needed."),Location=new Point(25,70),Size=new Size(630,65)};Controls.Add(notice);
   Controls.Add(new Label{Text=T("扩展 ID（已填好，通常无需修改）","Extension ID (preset; usually no change needed)"),Location=new Point(25,143),AutoSize=true});
-  id=new TextBox{Text=DefaultId,Location=new Point(25,169),Width=535};Controls.Add(id);
+  id=new TextBox{Text=DefaultId,Location=new Point(25,169),Width=535,ReadOnly=true};Controls.Add(id);
   progress=new ProgressBar{Location=new Point(25,211),Size=new Size(535,16)};Controls.Add(progress);
-  install=new Button{Text=uninstall?T("卸载助手","Uninstall"):T("安装 / 更新助手","Install / update"),Location=new Point(375,248),Size=new Size(185,38)};Controls.Add(install);
+  install=new Button{Text=uninstall?T("卸载助手","Uninstall"):T("安装助手和插件","Install / update"),Location=new Point(375,248),Size=new Size(185,38)};Controls.Add(install);
   deleteData=new CheckBox{Text=T("同时删除模型和字幕缓存","Also delete models and captions"),Location=new Point(25,250),AutoSize=true,Visible=uninstall};Controls.Add(deleteData);
   install.Click+=(s,e)=>{
    if(completed){Close();return;}
@@ -39,10 +40,42 @@ class Setup:Form {
    worker.ProgressChanged+=(a,b)=>{progress.Value=Math.Min(100,b.ProgressPercentage);notice.Text=(string)b.UserState;};
    worker.RunWorkerCompleted+=(a,b)=>{
     if(b.Error!=null){notice.Text=T("操作失败：","Operation failed: ")+b.Error.Message;install.Enabled=true;id.Enabled=true;return;}
-    progress.Value=100;notice.Text=uninstall?T("助手已卸载。","Assistant removed."):T("安装完成。重新加载 Chrome 插件，刷新视频即可使用。\n不需要运行 Start.cmd。","Installed. Reload the Chrome extension and refresh the video.\nYou do not need Start.cmd.");
+    progress.Value=100;notice.Text=uninstall?T("助手已卸载。","Assistant removed."):T("文件安装完成。接下来需要在 Chrome 手动确认加载插件。\n点击下方按钮，按编号完成；无需运行 Start.cmd。","Installed. Reload the Chrome extension and refresh the video.\nYou do not need Start.cmd.");
+    if(!uninstall)ShowGuide();
     completed=true;install.Text=T("关闭","Close");install.Enabled=true;
    };worker.RunWorkerAsync();
   };
+ }
+ void ShowGuide(){
+  string file=Path.Combine(home,"extension-path.txt");
+  if(!File.Exists(file))return;
+  string extension=File.ReadAllText(file).Trim();
+  var path=new TextBox{Text=extension,ReadOnly=true,Location=new Point(25,300),Width=630};Controls.Add(path);
+  var hint=new Label{Text=T("2. 在 Chrome 开启开发者模式 → 加载未打包的扩展程序\n3. 粘贴上方路径，按回车，再点‘选择文件夹’；不要进入 icons / _locales。","2. Enable Developer mode → Load unpacked in Chrome.\n3. Paste the path above, press Enter, then Select Folder."),Location=new Point(25,350),Size=new Size(630,60)};Controls.Add(hint);
+  var open=new Button{Text=T("1. 复制路径并打开 Chrome","1. Copy path and open Chrome"),Location=new Point(25,248),Size=new Size(325,38)};Controls.Add(open);
+  open.Click+=(s,e)=>{try{
+   Clipboard.SetText(extension);
+   string chrome=null;
+   foreach(var hive in new[]{Registry.CurrentUser,Registry.LocalMachine})using(var key=hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")){if(key!=null)chrome=key.GetValue("") as string;if(chrome!=null)break;}
+   if(chrome==null){foreach(string candidate in new[]{Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),@"Google\Chrome\Application\chrome.exe"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),@"Google\Chrome\Application\chrome.exe"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),@"Google\Chrome\Application\chrome.exe")})if(File.Exists(candidate)){chrome=candidate;break;}}
+   if(chrome==null)throw new Exception(T("未找到 Chrome。路径已复制，请自行打开 chrome://extensions。","Chrome not found. Path copied; open chrome://extensions manually."));
+   Process.Start(new ProcessStartInfo(chrome,"chrome://extensions/"){UseShellExecute=true});
+  }catch(Exception ex){MessageBox.Show(ex.Message);}};
+ }
+ void ExtractExtension(){
+  string target=Path.Combine(home,"Extensions","0.7.0-"+DateTime.Now.ToString("yyyyMMddHHmmssfff"));
+  Directory.CreateDirectory(target);string prefix=Path.GetFullPath(target)+Path.DirectorySeparatorChar;
+  using(var resource=Assembly.GetExecutingAssembly().GetManifestResourceStream("extension.zip")){
+   if(resource==null)throw new Exception("Extension payload missing.");
+   using(var zip=new ZipArchive(resource,ZipArchiveMode.Read))foreach(var entry in zip.Entries){
+    string destination=Path.GetFullPath(Path.Combine(target,entry.FullName));
+    if(!destination.StartsWith(prefix,StringComparison.OrdinalIgnoreCase))throw new Exception("Unsafe extension path.");
+    if(entry.FullName.EndsWith("/")){Directory.CreateDirectory(destination);continue;}
+    Directory.CreateDirectory(Path.GetDirectoryName(destination));entry.ExtractToFile(destination,true);
+   }
+  }
+  if(!File.Exists(Path.Combine(target,"manifest.json")))throw new Exception("Extension manifest missing.");
+  File.WriteAllText(Path.Combine(home,"extension-path.txt"),target,new UTF8Encoding(false));
  }
  void Install(string extensionId,BackgroundWorker worker){
   Directory.CreateDirectory(home);
@@ -82,6 +115,7 @@ class Setup:Form {
    key.SetValue("Publisher","CaptionCraft");key.SetValue("UninstallString","\""+manager+"\" --uninstall");
    key.SetValue("InstallLocation",home);key.SetValue("NoModify",1);key.SetValue("NoRepair",1);
   }
+  ExtractExtension();
   worker.ReportProgress(100,T("安装完成","Installed"));
  }
  static void CopyTree(string source,string target){
@@ -110,5 +144,5 @@ class Setup:Form {
   if(erase&&Directory.Exists(Path.Combine(home,"Data")))Directory.Delete(Path.Combine(home,"Data"),true);
   Registry.CurrentUser.DeleteSubKeyTree(RegistryHost,false);Registry.CurrentUser.DeleteSubKeyTree(RegistryUninstall,false);
  }
- [STAThread]static void Main(string[] args){Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new Setup(Array.IndexOf(args,"--uninstall")>=0||Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")==null));}
+ [STAThread]static void Main(string[] args){Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);bool guide=Array.IndexOf(args,"--guide")>=0;var form=new Setup(!guide&&(Array.IndexOf(args,"--uninstall")>=0||Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")==null));if(guide){form.completed=true;form.install.Text=form.T("关闭","Close");form.notice.Text=form.T("按下方步骤加载插件，完成后刷新 YouTube。","Follow the steps below, then refresh YouTube.");form.ShowGuide();}Application.Run(form);}
 }

@@ -162,7 +162,7 @@ class LocalTranslator:
         self.engines[key] = (engine, encode, decode, metadata.get('target_prefix', ''))
         return self.engines[key]
 
-    def translate(self, texts, route, check=lambda: None):
+    def translate(self, texts, route, check=lambda: None, beam_size=4):
         result = list(texts)
         for source, target in route:
             engine, encode, decode, prefix = self.load(source, target)
@@ -170,7 +170,7 @@ class LocalTranslator:
             for start in range(0, len(result), 8):
                 check()
                 batch = result[start:start + 8]
-                options = {'beam_size': 4, 'replace_unknowns': True, 'length_penalty': .2}
+                options = {'beam_size': beam_size, 'replace_unknowns': True, 'length_penalty': .2}
                 if prefix:
                     options['target_prefix'] = [[prefix]] * len(batch)
                 outputs = engine.translate_batch([encode(t) for t in batch], **options)

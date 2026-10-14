@@ -1,61 +1,46 @@
-# 字幕翻译生成 · CaptionCraft
+# 字幕翻译生成 · CaptionCraft 0.7.0 测试版
 
-![Logo](Logo.png)
+Windows / Chrome 本地视频及直播字幕。新增实时双语、通用网页音频捕获、英文流式引擎、独立字幕窗口；保留 YouTube 普通视频的预先生成与时间同步功能。尚未上架 Chrome 商店。
 
-面向 Windows / Chrome 的本地 YouTube 字幕与可选翻译工具。当前为 **0.6.0 测试版**，尚未上架 Chrome 商店。
+## 安装和升级
 
-## 下载和使用
+普通用户仅需运行 **CaptionCraft-All-in-One-Setup-v0.7.0.exe**，点击“安装助手和插件”。完成后点击“复制路径并打开 Chrome”。在 `chrome://extensions` 开启开发者模式 → 加载未打包的扩展程序，在文件夹选择窗口地址栏粘贴路径、回车，再点“选择文件夹”。不要进入 icons / _locales 子文件夹；窗口看不到 manifest.json 属正常现象。
 
-普通用户到本仓库右侧的 **Releases** 下载：
+已装旧版的用户需要加载安装器准备的新 0.7.0 文件夹，不能只刷新旧 0.6 文件夹。可先在 Chrome 移除旧扩展，再加载新目录；移除扩展可能重置 Chrome 内保存的样式和语言设置。助手程序使用新版本目录，已有 Data 中的识别和翻译模型会保留。无需 Python、命令、Start.cmd 或手动合并旧补丁。
 
-- `CaptionCraft-Assistant-Setup-v0.6.0.exe`：Windows 字幕助手，约 150 MB。
-- `CaptionCraft-Extension-v0.6.0.zip`：Chrome 插件。
+安装目录 `%LOCALAPPDATA%\CaptionCraft` 不要移动；下载的安装 EXE 可在安装后归档。Chrome 要求首次由用户确认加载扩展，本版不能静默安装。扩展稳定 ID 与 0.6.0 保持一致：`gnpbaionpkfpjgpcccjbnjbhlhlnjlcm`。
 
-1. 运行助手安装器，点击安装，保留默认扩展 ID。
-2. 全部解压插件 ZIP 到长期保留的目录。
-3. Chrome 打开 `chrome://extensions`，开启开发者模式，选择“加载未打包的扩展程序”，加载解压的文件夹。
-4. 刷新 YouTube 视频，打开插件，选择语言和显示方式，点击生成字幕。
+## 两种字幕模式
 
-助手内置 Python 和依赖，无需另装 Python、输入命令、粘贴令牌或运行 Start.cmd。首次使用需要下载识别模型；翻译模型按需下载。当前安装器未签名，Windows 可能显示未知发布者。测试版仅支持 Windows x64。
+- **同步字幕**：YouTube 普通视频，优先已有字幕，否则先获取音频并分段识别，再按视频进度显示。未准备的片段会暂停，准备好后自行播放。当前直播检测仅能识别明显直播标记，不能保证判断所有播放器；正在直播请手动选择实时模式。
+- **实时字幕**：YouTube 直播及普通 HTTP/HTTPS 网页，捕获用户点击启动的标签页声音。原文先出现，译文随后补充；只有译文模式在翻译准备期间显示等待提示。字幕始终可能晚于声音，不承诺零延迟或所有网站兼容。
 
-## 功能
+选择音频语言为 **English**，引擎“自动选择”会使用 Sherpa 本地流式英语模型。自动识别语言及其他语言使用 Whisper 的滚动窗口方案。流式英语模型速度快，但词汇、口音、噪声准确率未做广泛验证；可手动选“多语言 Whisper”兼容引擎。强制英语流式时源语言必须选择英语。
 
-- 原文语言：英语、日语、法语、西班牙语、韩语、俄语。
-- 自由选择翻译目标，额外支持中文；仅原文、双语或仅译文。
-- 优先现有字幕，否则下载音频后分段识别；也支持导入音频。
-- 七种设置界面，字号、文字/背景透明度、背景颜色、字幕拖动和 SRT 导出。
-- 助手自动启动和连接，空闲约五分钟后退出；模型和数据与程序分开保存。
+输入每 0.5 秒更新，最多保留 6 秒 PCM。Sherpa 只消费重叠窗口中的新音频，保持语音上下文，在停顿处确认文字并重置句子状态。临时字幕会修正。Whisper 仍是滚动识别，不能称作完整原生流式模型。独立翻译线程保留一个运行任务和一个最新待处理任务，不阻塞原文识别，过期译文不会替换新句子。
 
-## 当前限制
+浮层共用字号、背景、透明度、拖动设置，可拖到网页的视频区域之外。特殊 iframe / 原生全屏播放器无法嵌入浮层时，可打开“独立字幕窗口”；这是普通 Chrome 弹窗，不保证系统级置顶。SRT 导出仍用于已准备的视频字幕，实时字幕暂不保存完整历史。
 
-本版仍先完成音频下载，再分段识别。准备好的字幕按视频时间显示；未准备位置会暂停，请等待后自行播放。实时备用只支持原文并有延迟。YouTube 获取可能失败，识别可能错字，本地翻译可能误译。部分翻译经英语中转，不保证所有语言准确度。视频上限三小时，导入文件上限 200 MB。没有绕过登录、付费或 DRM。
+## 语言、模型与资源
 
-建议 64 位 Windows 10/11、至少 8 GB 内存及数 GB 磁盘空间。识别和翻译在本机执行，但获取在线视频和首次下载模型需要网络。
+- 原文语言：英语、日语、法语、西班牙语、韩语、俄语。翻译目标另有中文。界面七种语言。
+- 首次启动基础多语言 Base Whisper 需约 145 MB 模型下载。英语流式模式首次额外下载官方归档约 122 MiB，校验 SHA256 后只保留约 42 MiB 的 int8 模型数据。以后缓存完整即可离线识别。
+- 翻译模型按方向下载，可能数百 MB；部分语言需经英语中转，耗时和误译风险增加。首次联网获取的是模型，不是把录音发到云端。
+- Windows 10/11 x64，建议至少 8 GB 内存和数 GB 磁盘空间；无需独立显卡。首次准备、翻译及真实字幕延迟依网络、电脑、模型和讲话方式变化。
+- 英语模型来源：[sherpa-onnx 官方说明](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/zipformer-transducer-models.html)。版本 `sherpa-onnx==1.13.8`；基础识别 [faster-whisper](https://github.com/SYSTRAN/faster-whisper)，本地翻译使用 Argos 模型与 CTranslate2。
 
-## 开发与后续更新
+## 权限及限制
 
-源码目录：`extension` 为浏览器插件，`helper` 为识别/翻译服务，`native` 为原生桥接和 Windows 安装器，`shared` 为语言配置，`tests` 为回归测试。
+使用 `activeTab` / `scripting` 在用户点击后临时注入字幕，`tabCapture` 捕获标签页声音，`offscreen` 持续处理，`nativeMessaging` 自动启动本机助手。保留 localhost 接口权限，没有添加读取所有网站的 `<all_urls>` 权限。Chrome 设置页、扩展商店等受限页不支持。
 
-`shared/languages.json` 统一定义原文和目标语言。新增语言还需要相应模型、翻译路线、界面文案和实际质量验收。升级助手保留 Data，不要求用户重新安装 Python。
+捕获的是整个标签页的声音，可能包括广告和通知；不捕获其他标签页、麦克风或桌面应用。跨域 iframe 播放器不一定能读取暂停和进度，全屏适配仍需逐站验收。不绕过 DRM、付费、登录或浏览器保护。
 
-Windows 构建步骤见 [native/BUILD.md](native/BUILD.md)。源码中的 Install/Start 脚本为旧开发入口，普通用户请使用 Releases 安装器。
+队列有界，落后时追赶最新音频并显示跳过更新数量，因此较慢电脑可能漏字。显示的“处理耗时”仅是识别请求的 CPU 处理时间，**不是声音到字幕的端到端延迟**。英语小模型在测试录音开头出现过误识别，不能据速度结果宣称准确率优于 Whisper。识别和翻译都可能出错。
 
-在安装了 helper/requirements.txt 依赖的 Windows Python 环境执行：
+实时 PCM、最近字幕和翻译任务在内存中短暂保留，不保存完整直播录音或逐字稿；现有同步模式的本地缓存机制保留。模型下载需要访问官方模型站点。没有新增云端识别或翻译 API。
 
-```powershell
-python -m unittest discover -s tests -p "test_*.py"
-node tests/test_native_client.cjs
-node tests/test_background.cjs
-node tests/test_lifecycle.cjs
-node tests/test_audio.cjs
-node tests/test_captions.cjs
-node tests/test_timeline.cjs
-```
+## 测试与开发
 
-模型实测需另行下载模型；回归测试不自动下载模型。完整测试范围和未验收事项见 [TEST-REPORT.md](TEST-REPORT.md)。
+详见 TEST-REPORT.md。源码及 Logo MIT；runtime、依赖和模型各自保留许可证。安装器未数字签名，商业发行前仍需许可及实际机器验收。
 
-## 隐私、许可和反馈
-
-源码与 Logo 使用 [MIT](LICENSE)。依赖和模型遵循各自许可；本仓库不包含模型、个人令牌、字幕缓存和运行环境。隐私说明见 [PRIVACY.md](PRIVACY.md)。商业发行/商店发布前事项见 [PUBLISHING.md](PUBLISHING.md)。
-
-问题请提交 GitHub Issue，说明 Windows/Chrome 版本、插件版本和复现步骤。截图或日志分享前隐藏个人文件路径及私有内容，不要提交配对令牌。
+`native/build_windows.py` 可用已有许可 runtime ZIP 与展开的 sherpa Windows wheels 构建完整安装器。基础 runtime 包含 Python 3.11、requirements、翻译 tokenizer 依赖及 Deno；用户无需安装这些依赖。源码分布不含私有令牌、用户录音或模型权重。

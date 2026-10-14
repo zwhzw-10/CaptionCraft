@@ -3,7 +3,60 @@ let tabId = null, active = false, generation = 0, pending = null, processing = f
 let message = '尚未开启', sequence = 0;
 let mode = 'live', preparationTimer;
 let offset = 0, preparation = null, captionSettings={source:'auto',target:'zh',display:'original',preferExisting:true}, messageKey='idle';
-const captions = new CaptionState();
+
+const captions = new LiveCaptionState();
+let liveSession=null,liveEngine='whisper',liveSetup=null,translationTimer,translationPollTimer,translationPosting=false;
+let translationValue=null,translationInfo=null,translationError=null,frameSequence=0,skipped=0,inferenceMs=0,queueSeconds=0;
+let lastTranslationAt=0,lastPostedRevision=-1,lastCaption=null,resetSerial=Promise.resolve();
+function liveMetrics(){return {engine:liveEngine,inferenceMs,queueSeconds,skipped,translationState:translationInfo?.state||'idle',translationDownloadMB:translationInfo?.downloadMB,translationDetail:translationInfo?.detail,translationError};}
+function captionView(){
+ const latest=captions.latest;if(!latest)return {original:'',translation:'',display:captionSettings.display,final:false,revision:0};
+ const matching=translationValue?.revision===latest.revision && translationValue?.session===liveSession;
+ return {original:latest.text,translation:matching?translationValue.translation:'',display:captionSettings.display,final:latest.final,revision:latest.revision,translationPending:captionSettings.display!=='original'&&!matching};
+}
+async function emitLive(){lastCaption=captionView();return emit({liveCaption:lastCaption,metrics:liveMetrics()});}
+function scheduleTranslation(){
+ if(captionSettings.display==='original'||!captions.latest||!active)return;
+ if(captions.latest.revision===lastPostedRevision)return;
+ if(translationTimer)return;
+ const delay=Math.max(0,1200-(performance.now()-lastTranslationAt));
+ const epoch=generation;
+ translationTimer=setTimeout(async()=>{
+  translationTimer=null;if(!active||generation!==epoch||translationPosting)return;
+  const latest=captions.latest;if(!latest||latest.revision===lastPostedRevision)return;
+  translationPosting=true;lastTranslationAt=performance.now();lastPostedRevision=latest.revision;
+  try{await request('/live/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:liveSession,text:latest.text,revision:latest.revision,language:latest.language||captionSettings.source})});}
+  catch(e){if(generation===epoch){translationError=e.message;await emitLive();}}
+  finally{translationPosting=false;if(generation===epoch)scheduleTranslation();}
+ },delay);
+}
+async function pollTranslation(epoch){
+ if(!active||epoch!==generation||captionSettings.display==='original')return;
+ try{
+  const result=await request('/live/translation',{headers:{'X-Live-Session':liveSession}});
+  if(!active||epoch!==generation)return;
+  translationInfo=result;
+  if(result.state==='ready'&&result.session===liveSession&&result.revision===captions.latest?.revision){translationValue=result;translationError=null;await emitLive();}
+  if(result.state==='error'){translationError=result.error;await emitLive();}
+ }catch(e){if(epoch===generation){translationError=e.message;await emitLive();}}
+ if(active&&epoch===generation)translationPollTimer=setTimeout(()=>pollTranslation(epoch),700);
+}
+async function prepareLive(m){
+ await stop();tabId=m.tabId;captionSettings=m.settings||captionSettings;mode='live-setup';liveSetup=null;
+ const epoch=generation;
+ let state=await request('/live/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(captionSettings)});
+ if(epoch!==generation)throw new Error('Live setup cancelled');
+ liveSession=state.session;
+ while(state.state==='loading'){
+  if(epoch!==generation)throw new Error('Live setup cancelled');
+  liveSetup=state;messageKey='liveModelLoading';await emit({liveSetup});
+  await new Promise(r=>setTimeout(r,700));state=await request('/live/status');
+ }
+ if(epoch!==generation)throw new Error('Live setup cancelled');
+ if(state.state!=='ready')throw new Error(state.error||'Live recognizer not ready');
+ liveSession=state.session;liveEngine=state.engine;mode='live';liveSetup=null;return {ok:true,engine:liveEngine};
+}
+
 async function emit(extra = {}) {
   return chrome.runtime.sendMessage({target: 'background', type: 'event', tabId, active, message, messageKey, preparation, ...extra}).catch(() => {});
 }
@@ -19,13 +72,15 @@ async function request(path, options = {}) {
   return data;
 }
 async function stop() {
-  clearTimeout(preparationTimer);
+  clearTimeout(preparationTimer);clearTimeout(translationTimer);clearTimeout(translationPollTimer);translationTimer=null;
+  if(liveSession)request('/live/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:liveSession})}).catch(()=>{});
+  liveSession=null;liveSetup=null;translationValue=translationInfo=translationError=lastCaption=null;
   if (mode === 'preparing' || mode === 'partial-error') await request('/prepare/cancel', {method: 'POST'}).catch(() => {});
   mode = 'live';
   generation++;
   active = false;
   pending = null;
-  captions.clear();
+  captions.reset();
   controller?.abort();
   recorder?.port.postMessage({type: 'reset', paused: true, generation});
   stream?.getTracks().forEach(t => t.stop());
@@ -68,77 +123,78 @@ async function prepare(m) {
   } catch (e) { await stop(); throw e; }
 }
 async function drain() {
-  if (processing) return;
-  processing = true;
-  try {
-    while (pending && active) {
-      const frame = pending; pending = null;
-      const current = generation;
-      controller = new AbortController();
-      const timeout = setTimeout(() => controller?.abort(), 30000);
-      try {
-        const result = await request('/transcribe', {method: 'POST', body: frame.samples.buffer, headers: {'Content-Type': 'application/octet-stream','X-Caption-Options':JSON.stringify(captionSettings)}, signal: controller.signal});
-        if (!active || current !== generation) continue;
-        const lag = (performance.now() - frame.received) / 1000;
-        message = `快速字幕 · 识别 ${result.seconds.toFixed(2)} 秒 · 更新间隔 0.8 秒`;
-        if (lag > 5) { message = '识别落后，已丢弃过期结果；建议使用 tiny'; await emit({warning: true}); continue; }
-        const text = captions.update(result, frame);
-        if (text !== null) await emit({text, sequence: ++sequence});
-        else await emit();
-      } catch (e) {
-        if (!active || current !== generation) continue;
-        if (e.status === 429) { pending = null; message = '等待上一次识别结束…'; await emit(); continue; }
-        const errorMessage = e.name === 'AbortError' ? '识别超过 30 秒：请查看助手日志或重新连接' : `本地识别失败：${e.message}。请查看助手日志或重新连接`;
-        await stop();
-        message = errorMessage;
-        await emit({message, error: true});
-        break;
-      } finally { clearTimeout(timeout); }
-    }
-  } finally { processing = false; }
+ if(processing)return;processing=true;
+ try{
+  while(pending&&active){
+   const frame=pending;pending=null;const current=generation;
+   if(liveEngine==='whisper'&&frame.end-frame.start<1.2)continue;
+   const settings={...captionSettings,display:'original',session:liveSession,start:frame.start,end:frame.end,sequence:frameSequence++};
+   const session=liveSession;controller=new AbortController();
+   try{
+    const wait=(performance.now()-frame.received)/1000;
+    const result=await request(liveEngine==='sherpa'?'/live/audio':'/transcribe',{method:'POST',body:frame.samples.buffer,
+     headers:{'Content-Type':'application/octet-stream','X-Caption-Options':JSON.stringify(settings),'X-Live-Session':session},signal:AbortSignal.any([controller.signal,AbortSignal.timeout(30000)])});
+    if(!active||current!==generation)continue;
+    inferenceMs=Math.round(result.seconds*1000);queueSeconds=Number(wait.toFixed(2));
+    const stale=(performance.now()-frame.received)/1000>6;
+    if(stale){skipped++;messageKey='liveLag';await emit({metrics:liveMetrics()});continue;}
+    result.engine=liveEngine;
+    const latest=captions.update(result,frame);
+    messageKey=wait>1||result.gap?'liveLag':'liveActive';
+    if(latest){await emitLive();scheduleTranslation();}else await emit({metrics:liveMetrics()});
+   }catch(e){
+    if(!active||current!==generation)continue;
+    if(e.status===429){skipped++;messageKey='liveLag';await emit({metrics:liveMetrics()});continue;}
+    const detail=e.message;await stop();messageKey='error';await emit({error:detail});break;
+   }
+  }
+ }finally{processing=false;}
 }
-async function start(m) {
-  await stop();
-  tabId = m.tabId; captionSettings=m.settings||captionSettings; messageKey='liveActive';
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({audio: {mandatory: {chromeMediaSource: 'tab', chromeMediaSourceId: m.streamId}}, video: false});
-    context = new AudioContext();
-    await context.audioWorklet.addModule('pcm-worklet.js');
-    source = context.createMediaStreamSource(stream);
-    source.connect(context.destination);
-    recorder = new AudioWorkletNode(context, 'pcm-recorder');
-    mute = context.createGain(); mute.gain.value = 0;
-    source.connect(recorder); recorder.connect(mute); mute.connect(context.destination);
-    active = true; message = '已开启 · 约 1.2 秒后开始识别，字幕可逐步修正';
-    recorder.port.postMessage({type: 'reset', paused: false, generation});
-    recorder.port.onmessage = e => {
-      if (!active || e.data.generation !== generation) return;
-      if (pending) { message = '电脑识别较慢，已跳过旧音频；可改用 tiny'; emit({warning: true}); }
-      pending = {samples: new Float32Array(e.data.buffer), start: e.data.start, end: e.data.end, received: performance.now()};
-      drain();
-    };
-    stream.getAudioTracks()[0].onended = () => { if (active) stop(); };
-    await context.resume();
-    await emit({text: ''});
-    return {ok: true};
-  } catch (e) { await stop(); throw e; }
+async function start(m){
+ if(!liveSession)throw new Error('Live engine has not been prepared');
+ tabId=m.tabId;mode='live';captionSettings=m.settings||captionSettings;messageKey='liveActive';
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:m.streamId}},video:false});
+  context=new AudioContext();await context.audioWorklet.addModule('pcm-worklet.js');
+  source=context.createMediaStreamSource(stream);source.connect(context.destination);
+  recorder=new AudioWorkletNode(context,'pcm-recorder');mute=context.createGain();mute.gain.value=0;
+  source.connect(recorder);recorder.connect(mute);mute.connect(context.destination);
+  active=true;frameSequence=0;skipped=0;inferenceMs=queueSeconds=0;lastPostedRevision=-1;lastTranslationAt=0;captions.reset();
+  recorder.port.postMessage({type:'reset',paused:false,generation});
+  recorder.port.onmessage=e=>{
+   if(!active||e.data.generation!==generation)return;
+   if(pending)skipped++;
+   pending={samples:new Float32Array(e.data.buffer),start:e.data.start,end:e.data.end,received:performance.now()};drain();
+  };
+  stream.getAudioTracks()[0].onended=()=>{if(active)stop();};
+  await context.resume();await emitLive();pollTranslation(generation);return {ok:true};
+ }catch(e){await stop();throw e;}
+}
+function resetLive(paused){
+ const epoch=++generation;pending=null;captions.reset();controller?.abort();
+ clearTimeout(translationTimer);clearTimeout(translationPollTimer);translationTimer=null;lastPostedRevision=-1;translationValue=null;
+ recorder?.port.postMessage({type:'reset',paused:true,generation:epoch});
+ resetSerial=resetSerial.catch(()=>{}).then(async()=>{
+  if(!active||epoch!==generation)return;
+  const state=await request('/live/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(captionSettings)});
+  if(!active||epoch!==generation)return;
+  liveSession=state.session;frameSequence=0;
+  recorder?.port.postMessage({type:'reset',paused,generation:epoch});await emitLive();
+  if(!paused)pollTranslation(epoch);
+ });return resetSerial;
 }
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   if (m.target !== 'offscreen') return;
   (async () => {
-    if (m.type === 'status') return {active, tabId, message, messageKey, mode, offset, preparation};
+    if (m.type === 'status') return {active,tabId,message,messageKey,mode,offset,preparation,liveSetup,metrics:mode==='live'?liveMetrics():null,liveCaption:lastCaption};
     if (m.type === 'offset') { offset = Math.max(-5, Math.min(5, Number(m.seconds) || 0)); return {ok: true}; }
     if(m.type==='seek'&&m.tabId===tabId&&mode==='preparing'){await request('/prepare/seek',{method:'POST',body:JSON.stringify({seconds:m.seconds}),headers:{'Content-Type':'application/json'}});return {ok:true};}
-    if (m.type === 'health') { await request('/health'); return {ok: true}; }
+    if (m.type === 'health') {const health=await request('/health');if(!health.live)throw new Error('请安装 CaptionCraft 0.7 完整安装包，再重新连接助手。');return {ok:true};}
+    if(m.type==='prepare-live')return prepareLive(m);
     if (m.type === 'start') return start(m);
     if (m.type === 'prepare') return prepare(m);
     if (m.type === 'stop') { await stop(); return {ok: true}; }
-    if (m.type === 'reset' && m.tabId === tabId && mode === 'live') {
-      generation++; pending = null; captions.clear(); controller?.abort();
-      recorder?.port.postMessage({type: 'reset', paused: !!m.paused, generation});
-      await emit({text: ''});
-      return {ok: true};
-    }
+    if(m.type==='reset'&&m.tabId===tabId&&mode==='live'){await resetLive(!!m.paused);return {ok:true};}
   })().then(reply).catch(e => reply({ok: false, error: e.message}));
   return true;
 });

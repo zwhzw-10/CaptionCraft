@@ -15,7 +15,7 @@ from language_settings import normalize_settings, SOURCE_LANGUAGES
 MAX_BYTES = 16000 * 4 * 8
 
 
-def make_handler(model, token, np, preloader=None, model_lock=None):
+def make_handler(model, token, np, preloader=None, model_lock=None, live=None):
     lock = model_lock or threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -66,7 +66,7 @@ def make_handler(model, token, np, preloader=None, model_lock=None):
             self.send_header('Access-Control-Allow-Origin', self.headers.get('Origin', 'null'))
             self.send_header('Vary', 'Origin')
             self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Local-Token, X-Video-URL, X-Caption-Options')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Local-Token, X-Video-URL, X-Caption-Options, X-Live-Session')
             self.send_header('Access-Control-Allow-Private-Network', 'true')
             self.send_header('Content-Length', '0')
             self.end_headers()
@@ -74,15 +74,22 @@ def make_handler(model, token, np, preloader=None, model_lock=None):
         def do_GET(self):
             if not self.authorized():
                 return
+            if self.path == '/live/status' and live:
+                return self.reply(200, live.status())
+            if self.path == '/live/translation' and live:
+                try: return self.reply(200, live.translation_status(self.headers.get('X-Live-Session')))
+                except ValueError as exc: return self.reply(409, {'error': str(exc)})
             if self.path == '/prepare/status' and preloader:
                 return self.reply(200, preloader.status())
             if self.path != '/health':
                 return self.reply(404, {'error': 'Not found'})
-            self.reply(200, {'ok': True, 'sample_rate': 16000, 'languages': list(SOURCE_LANGUAGES), 'version': '0.6.0'})
+            self.reply(200, {'ok': True, 'sample_rate': 16000, 'languages': list(SOURCE_LANGUAGES), 'version': '0.7.0', 'live': bool(live), 'streamingEnglish': bool(live)})
 
         def do_POST(self):
             if not self.authorized():
                 return
+            if self.path.startswith('/live/') and live:
+                return self.live_request()
             if self.path.startswith('/prepare') and preloader:
                 return self.prepare()
             if self.path != '/transcribe':
@@ -97,6 +104,8 @@ def make_handler(model, token, np, preloader=None, model_lock=None):
                 return self.reply(415, {'error': 'Expected application/octet-stream'})
             try:
                 settings = normalize_settings(json.loads(self.headers.get('X-Caption-Options', '{}')))
+                if self.headers.get('X-Live-Session') and live:
+                    live.validate({'session': self.headers.get('X-Live-Session')})
                 if settings['display'] != 'original':
                     return self.reply(400, {'error': 'Live mode currently supports original subtitles; use preparation for translation'})
             except (ValueError, TypeError) as exc:
@@ -131,6 +140,30 @@ def make_handler(model, token, np, preloader=None, model_lock=None):
                 self.reply(500, {'error': 'Recognition failed; check helper console'})
             finally:
                 lock.release()
+
+        def live_request(self):
+            try:
+                size = int(self.headers.get('Content-Length', '0'))
+                if self.path == '/live/audio':
+                    if not 0 < size <= MAX_BYTES or size % 4: return self.reply(413, {'error': 'Invalid live PCM length'})
+                    if self.headers.get('Content-Type') != 'application/octet-stream': return self.reply(415, {'error': 'Expected PCM'})
+                    raw = self.rfile.read(size)
+                    if len(raw) != size: raise ValueError('Incomplete PCM')
+                    pcm = np.frombuffer(raw, dtype='<f4').copy()
+                    if not np.isfinite(pcm).all() or np.max(np.abs(pcm)) > 1.01: raise ValueError('Invalid live PCM')
+                    value = json.loads(self.headers.get('X-Caption-Options', '{}'))
+                    return self.reply(200, live.push(pcm, value, np))
+                if not 0 < size <= 8192: return self.reply(413, {'error': 'Invalid live request size'})
+                value = json.loads(self.rfile.read(size))
+                if not isinstance(value, dict): raise ValueError('Expected object')
+                if self.path == '/live/config': return self.reply(200, live.prepare(value))
+                if self.path == '/live/stop': live.close(value); return self.reply(200, {'ok': True})
+                if self.path == '/live/translate': return self.reply(202, live.queue_translation(value))
+                return self.reply(404, {'error': 'Not found'})
+            except (ValueError, TypeError, KeyError) as exc:
+                return self.reply(400, {'error': str(exc)})
+            except Exception as exc:
+                return self.reply(500, {'error': 'Live recognition failed: ' + type(exc).__name__})
 
         def prepare(self):
             try:
@@ -195,7 +228,9 @@ def main():
     from preload import Preloader
     model_lock = threading.Lock()
     preloader = Preloader(ROOT, model, model_lock, args.model)
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(model, token, np, preloader, model_lock))
+    from live import Live
+    live = Live(ROOT)
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(model, token, np, preloader, model_lock, live))
     server.daemon_threads = True
     print(f'READY: http://127.0.0.1:{args.port} | Multilingual | CPU int8 | Ctrl+C to stop', flush=True)
     try:

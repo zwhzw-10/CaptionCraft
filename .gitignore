@@ -1,0 +1,10 @@
+.venv/
+models/
+__pycache__/
+*.pyc
+helper/config.json
+extension/config.js
+Local-Pairing.txt
+.cache/
+.backup/
+*.log
