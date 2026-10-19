@@ -8,3 +8,10 @@ Local-Pairing.txt
 .cache/
 .backup/
 *.log
+
+# macOS build and private runtime files
+.dist/
+runtime/
+native-host.json
+*.app/
+*.dmg
