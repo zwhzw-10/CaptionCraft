@@ -1,5 +1,9 @@
 # 字幕翻译生成 · CaptionCraft 0.7.0 测试版
 
+## Mac 测试版
+
+已增加 Apple Silicon（M 系列）macOS 14+ 安装器和原生助手适配。使用 Mac 安装包，解压后打开安装器；不要运行 Windows EXE。内置 Python，首次仍需在 Chrome 加载扩展。构建与数据目录见 [Mac 说明](native/macos/README.md)。下载 [Mac preview 1](https://github.com/zwhzw-10/CaptionCraft/releases/tag/v0.7.0-macos-preview.1)；安装步骤见 [使用说明](native/macos/USER-GUIDE.zh-CN.txt)，测试范围与限制见 [验证记录](native/macos/VALIDATION.md)。
+
 Windows / Chrome 本地视频及直播字幕。新增实时双语、通用网页音频捕获、英文流式引擎、独立字幕窗口；保留 YouTube 普通视频的预先生成与时间同步功能。尚未上架 Chrome 商店。
 
 ## 安装和升级

@@ -3,7 +3,7 @@
   globalThis.__localCaptions = true;
   const host = document.createElement('div'); host.id = 'local-english-captions';
   const root = host.attachShadow({mode: 'closed'});
-  root.innerHTML = `<style>:host{position:fixed!important;z-index:2147483647!important;pointer-events:none!important;text-align:center!important;width:max-content!important;max-width:90vw!important}span{display:inline-block;max-width:100%;font:600 28px/1.4 Arial,sans-serif;padding:7px 14px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:auto;cursor:grab;touch-action:none;user-select:none}span:empty{display:none}span:active{cursor:grabbing}span[data-phase]::after{content:attr(data-phase);display:block;font:400 10px/1.5 Arial,sans-serif;opacity:.65;margin-top:3px}</style><span></span>`;
+  root.innerHTML = `<style>:host{position:fixed!important;z-index:2147483647!important;pointer-events:none!important;text-align:center!important;width:max-content!important;max-width:90vw!important}:host([popover]){margin:0!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;right:auto!important;bottom:auto!important}:host::backdrop{display:none}span{display:inline-block;max-width:100%;font:600 28px/1.4 Arial,sans-serif;padding:7px 14px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:auto;cursor:grab;touch-action:none;user-select:none}span:empty{display:none}span:active{cursor:grabbing}span[data-phase]::after{content:attr(data-phase);display:block;font:400 10px/1.5 Arial,sans-serif;opacity:.65;margin-top:3px}</style><span></span>`;
   const label = root.querySelector('span');
   let style = {...CAPTION_DEFAULTS}, previewUntil = 0, drag = null, dead = false, waitingForBuffer = false;
   function saveStyle() { if (chrome.runtime?.id) chrome.storage.local.set({captionStyle:style}).catch(()=>{}); }
@@ -52,8 +52,18 @@
     if (enabled && chrome.runtime?.id) chrome.runtime.sendMessage({target: 'background', type: 'reset', paused: !!video && (video.paused || video.seeking)}).catch(() => {});
   }
   function mount() {
-    const parent=document.fullscreenElement || document.body;
+    const fullscreen=document.fullscreenElement;
+    // Replaced media elements do not render child overlays. Use the top layer.
+    const mediaFullscreen=fullscreen?.matches('video,audio') && typeof host.showPopover==='function';
+    const parent=mediaFullscreen?document.body:(fullscreen || document.body);
     if(parent && host.parentElement!==parent)parent.append(host);
+    if(mediaFullscreen){
+      host.setAttribute('popover','manual');
+      if(!host.matches(':popover-open'))host.showPopover();
+    }else if(host.hasAttribute('popover')){
+      if(host.matches(':popover-open'))host.hidePopover();
+      host.removeAttribute('popover');
+    }
     const videos=[...document.querySelectorAll('video')];
     const next=videos.sort((a,b)=>{const x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return y.width*y.height-x.width*x.height;})[0];
     if (next !== video) {

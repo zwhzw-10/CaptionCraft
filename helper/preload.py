@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import os
+import sys
 import re
 import shutil
 import tempfile
@@ -169,7 +170,7 @@ class Preloader:
 
     def existing_subtitles(self, vid, source):
         from yt_dlp import YoutubeDL
-        runtime = Path(os.environ.get('CAPTIONCRAFT_DENO', str(self.root / 'tools/deno/deno.exe')))
+        runtime = Path(os.environ.get('CAPTIONCRAFT_DENO', str(self.root / ('tools/deno/deno.exe' if sys.platform == 'win32' else 'tools/deno/deno'))))
         options = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
                    'socket_timeout': 20, 'cachedir': str(self.root / '.cache/yt-dlp')}
         if runtime.exists():
@@ -326,10 +327,10 @@ class Preloader:
 
     def download(self,vid,folder):
         try: from yt_dlp import YoutubeDL
-        except ImportError: raise RuntimeError('Run Enable-Preload.cmd first')
-        runtime=Path(os.environ.get('CAPTIONCRAFT_DENO', str(self.root/'tools/deno/deno.exe')))
+        except ImportError: raise RuntimeError('Audio download component is missing; reinstall the assistant')
+        runtime=Path(os.environ.get('CAPTIONCRAFT_DENO', str(self.root/('tools/deno/deno.exe' if sys.platform == 'win32' else 'tools/deno/deno'))))
         js={'deno':{'path':str(runtime)}} if runtime.exists() else {'node':{'path':shutil.which('node')}} if shutil.which('node') else {}
-        if not js: raise RuntimeError('Run Enable-Preload.cmd to install JavaScript runtime')
+        if not js: raise RuntimeError('JavaScript runtime is missing; reinstall the assistant')
         notes = []
         finished = []
         class Logger:
